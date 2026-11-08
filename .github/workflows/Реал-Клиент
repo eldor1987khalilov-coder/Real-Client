@@ -1,0 +1,263 @@
+
+name: Build REAL CLIENT APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get source
+        uses: actions/checkout@v4
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Create Android project
+        run: |
+          mkdir -p app/src/main/java/com/realclient
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "RealClient"
+          include(":app")
+          EOF
+
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.6.1" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+          }
+          EOF
+
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.realclient"
+              compileSdk = 35
+
+              defaultConfig {
+                  applicationId = "com.realclient"
+                  minSdk = 23
+                  targetSdk = 28
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+              <application
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar"
+                  android:label="REAL CLIENT">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <service
+                      android:name=".OverlayService"
+                      android:exported="false"/>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/realclient/MainActivity.kt <<'EOF'
+          package com.realclient
+
+          import android.app.Activity
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Bundle
+          import android.provider.Settings
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.TextView
+          import android.graphics.Color
+
+          class MainActivity : Activity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  val layout = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(30, 60, 30, 30)
+                      setBackgroundColor(Color.rgb(18, 15, 25))
+                  }
+
+                  val title = TextView(this).apply {
+                      text = "REAL CLIENT 🔑"
+                      textSize = 28f
+                      setTextColor(Color.rgb(196, 160, 255))
+                  }
+
+                  val info = TextView(this).apply {
+                      text = "Minecraft Bedrock\\nKey Finder demo"
+                      textSize = 17f
+                      setTextColor(Color.WHITE)
+                  }
+
+                  val start = Button(this).apply {
+                      text = "Включить кнопку-ключ"
+                      setOnClickListener {
+                          if (!Settings.canDrawOverlays(this@MainActivity)) {
+                              startActivity(
+                                  Intent(
+                                      Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                      Uri.parse("package:$packageName")
+                                  )
+                              )
+                          } else {
+                              startService(
+                                  Intent(this@MainActivity, OverlayService::class.java)
+                              )
+                              info.text = "Кнопка включена!"
+                          }
+                      }
+                  }
+
+                  layout.addView(title)
+                  layout.addView(info)
+                  layout.addView(start)
+                  setContentView(layout)
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/realclient/OverlayService.kt <<'EOF'
+          package com.realclient
+
+          import android.app.Service
+          import android.content.Intent
+          import android.graphics.Color
+          import android.graphics.PixelFormat
+          import android.os.IBinder
+          import android.view.Gravity
+          import android.view.WindowManager
+          import android.widget.TextView
+          import android.widget.LinearLayout
+
+          class OverlayService : Service() {
+              private lateinit var wm: WindowManager
+              private var bubble: TextView? = null
+              private var panel: LinearLayout? = null
+
+              override fun onCreate() {
+                  super.onCreate()
+                  wm = getSystemService(WINDOW_SERVICE) as WindowManager
+
+                  val key = TextView(this).apply {
+                      text = "🔑"
+                      textSize = 27f
+                      gravity = Gravity.CENTER
+                      setBackgroundColor(Color.rgb(105, 55, 160))
+                      setOnClickListener { togglePanel() }
+                  }
+
+                  bubble = key
+                  wm.addView(key, params(65, 65))
+              }
+
+              private fun params(w: Int, h: Int) =
+                  WindowManager.LayoutParams(
+                      w, h,
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                      PixelFormat.TRANSLUCENT
+                  ).apply {
+                      gravity = Gravity.TOP or Gravity.START
+                      x = 30
+                      y = 200
+                  }
+
+              private fun togglePanel() {
+                  if (panel != null) {
+                      wm.removeView(panel)
+                      panel = null
+                      return
+                  }
+
+                  val box = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(22, 18, 22, 18)
+                      setBackgroundColor(Color.rgb(24, 19, 34))
+                  }
+
+                  val title = TextView(this).apply {
+                      text = "REAL CLIENT"
+                      textSize = 23f
+                      setTextColor(Color.rgb(196, 160, 255))
+                  }
+
+                  val finder = TextView(this).apply {
+                      text = "🔑 KEY FINDER: DEMO"
+                      textSize = 17f
+                      setTextColor(Color.WHITE)
+                      setPadding(8, 20, 8, 20)
+                  }
+
+                  val close = TextView(this).apply {
+                      text = "Закрыть"
+                      textSize = 16f
+                      setTextColor(Color.rgb(196, 160, 255))
+                      setOnClickListener { togglePanel() }
+                  }
+
+                  box.addView(title)
+                  box.addView(finder)
+                  box.addView(close)
+
+                  panel = box
+                  wm.addView(box, params(280, 180))
+              }
+
+              override fun onDestroy() {
+                  bubble?.let { wm.removeView(it) }
+                  panel?.let { wm.removeView(it) }
+                  super.onDestroy()
+              }
+
+              override fun onBind(intent: Intent?): IBinder? = null
+          }
+          EOF
+
+      - name: Build APK
+        run: gradle :app:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: REAL-CLIENT-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
